@@ -1,0 +1,9 @@
+Licences:
+Apache-2.0
+
+Packages:
+requests; Apache-2.0
+configparser; Apache-2.0
+oslo-log; Apache-2.0
+stevedore; Apache-2.0
+nova; Apache-2.0

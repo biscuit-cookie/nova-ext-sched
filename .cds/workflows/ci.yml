@@ -1,0 +1,51 @@
+version: v2.0
+name: nova-ext-sched-build
+integrations: [ artifactory-pu-pci-publiccloud ]
+on: [push]
+jobs:
+  build:
+    runs-on: library/python-3-10
+    steps:
+      - id: checkout
+        name: Download repository from remote source
+        with: 
+          path: nova-ext-sched
+        uses: actions/checkout
+
+      - id: build
+        run: |
+          cd nova-ext-sched
+
+          pip3 install build setuptools==65.5.1 wheel
+
+          # Clean previous builds
+          rm -rf build/ dist/ *.egg-info
+
+          # Build source
+          python3 setup.py sdist bdist_wheel
+
+          # Extract version from filename
+          VERSION=$(ls dist/nova-ext-sched-*.tar.gz | sed -E 's/.*nova-ext-sched-([0-9\.]+)\.tar\.gz/\1/')
+          echo "Extracted version: $VERSION"
+
+          # Export to CDS
+          worker export version "$VERSION"
+
+      - id: push
+        uses: actions/pythonPush
+        with:
+          package: nova-ext-sched
+          version: '${{ steps.build.outputs.version }}'
+          directory: nova-ext-sched
+          wheel: 'true'
+          pythonBinary: python3
+
+      - uses: actions/uploadArtifact
+        with:
+          path:  nova-ext-sched/*
+          if-no-files-found: error
+
+      - uses: actions/artifactoryRelease
+        with:
+          artifacts: "*nova-ext-sched*"
+
