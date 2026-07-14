@@ -2,7 +2,7 @@
 
 `nova-ext-sched` is a Stevedore plugin that extends OpenStack Nova's default scheduling mechanism by enabling the integration of external filters and weighers. This allows enhanced scheduling logic based on external monitoring systems such as Prometheus.
 
-**Status:** Example project — no expected maintenance.
+**This fork widens the plugin so it allows adding new filters and weights to external_scheduler directory dynamically in runtime (not statically like before) through Stevedore, and allows managing the enabled filters / weights for each scheduling task through specific scheduler hint. Now ExternalScheduler also checks if the plugin.conf was modified, and if so, it (through locking) reads the updated version and updates own caches. That is crucial, since you should add profiles through plugin.conf**
 
 ## Overview
 
