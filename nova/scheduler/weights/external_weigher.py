@@ -24,7 +24,7 @@ LOG = logging.getLogger(__name__)
 class ExternalWeigher(weights.BaseHostWeigher):
 
     def __init__(self):
-        # Load the external weighter dynamically using stevedore
+        # Load the external scheduler driver dynamically using stevedore
         self.mgr = driver.DriverManager(
             namespace="nova.scheduler.external_scheduler",
             name="external_scheduler",
@@ -33,14 +33,13 @@ class ExternalWeigher(weights.BaseHostWeigher):
         )
 
     def weigh_objects(self, weighed_obj_list, weight_properties):
-        """Override weigh_objects from BaseWeigher to implement a hook
+        """Batch hook used to select a request-local external profile.
         """
         LOG.debug(f"ExternalWeigher: weigh_objects called")
-        self.mgr.driver.before_weighting(weighed_obj_list, weight_properties) # the hook
-        return super().weigh_objects(weighed_obj_list, weight_properties)
+        return self.mgr.driver.weigh_all(weighed_obj_list, weight_properties)
 
     def _weigh_object(self, host_state, weight_properties):
-        """Weight a given host
+        """Nova BaseWeigher expects this method for single-host fallback.
         """
         LOG.debug(f"ExternalWeigher: _weigh_object called")
         return self.mgr.driver.weight_one(host_state, weight_properties) # let the decision to external plugin

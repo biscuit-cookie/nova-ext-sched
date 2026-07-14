@@ -40,8 +40,9 @@ class TestCpuLoadWeight(unittest.TestCase):
 
         self.filter.before_weighting([hostA, hostB], weight_properties={})
 
-        assert hostA.__dict__['ext-sched.idle-ratio'] == 0.5
-        assert 'ext-sched.idle-ratio' not in hostB.__dict__
+        assert hostA_obj.__dict__['ext-sched.idle-ratio'] == 0.5
+        assert 'ext-sched.idle-ratio' not in hostA.__dict__
+        assert 'ext-sched.idle-ratio' not in hostB_obj.__dict__
 
     def test_weight_one_returns_0_if_no_idle_ratio(self):
         class AttrMock(MagicMock): # Ugly but otherwise, hasattr value always return True with mock objects

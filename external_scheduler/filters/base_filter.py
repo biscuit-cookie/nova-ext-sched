@@ -25,7 +25,7 @@ class BaseExternalFilter(object):
         pass
 
     def filter_one(self, host_state, spec_obj):
-        """Return True if current host CPU usage is adequate for a new deployment
+        """Return True if current host is adequate for a new deployment
 
         :param host_state: nova.scheduler.host_manager.HostState
         :param spec_obj: filter options

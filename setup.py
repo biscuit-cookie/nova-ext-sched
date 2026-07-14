@@ -24,14 +24,22 @@ setup(
         'nova.scheduler.external_scheduler': [
             'external_scheduler = external_scheduler.plugin:ExternalScheduler',
         ],
+        'nova.scheduler.external_scheduler.filters': [
+            'CpuLoadFilter = external_scheduler.filters.cpuload_filter:CpuLoadFilter',
+            'CpuLoadNoopFilter = external_scheduler.filters.cpuloadnoop_filter:CpuLoadNoopFilter',
+        ],
+        'nova.scheduler.external_scheduler.weighers': [
+            'CpuLoadWeight = external_scheduler.weights.cpuload_weight:CpuLoadWeight',
+            'CpuLoadNoopWeight = external_scheduler.weights.cpuloadnoop_weight:CpuLoadNoopWeight',
+        ],
     },
     include_package_data=True,  # Ensure package data is included
     install_requires=[
         "oslo.log===5.5.1",
+        "requests",
         "stevedore===5.2.0",
         "nova==29.3.0",
         "unittest2===1.1.0",
         "setuptools==65.5.1"
     ]
 )
-

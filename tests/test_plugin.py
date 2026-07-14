@@ -11,110 +11,399 @@
 #    License for the specific language governing permissions and limitations
 #    under the License.
 
-import unittest, requests
+import os
+import tempfile
+import threading
+import time
+import unittest
+import requests
 from unittest.mock import MagicMock, patch
+
 from external_scheduler import plugin
 
-class TestExternalScheduler(unittest.TestCase):
+
+class Spec:
+    def __init__(self, hints=None):
+        self.scheduler_hints = hints or {}
+        self.instance_uuid = "instance-uuid"
+
+
+class Host:
+    pass
+
+
+class Weighed:
+    def __init__(self, host):
+        self.obj = host
+
+
+class ExternalSchedulerTestCase(unittest.TestCase):
 
     def setUp(self):
-        self.plugin = plugin.ExternalScheduler(logger=MagicMock())
-        # Mock objects
-        self.mock_filter_true = MagicMock()
-        self.mock_filter_true.filter_one.return_value = True
-        self.mock_filter_false = MagicMock()
-        self.mock_filter_false.filter_one.return_value = False
-        self.mock_weigher_one = MagicMock()
-        self.mock_weigher_one.weight_one.return_value = 1
-        self.mock_weigher_minus_two = MagicMock()
-        self.mock_weigher_minus_two.weight_one.return_value = -2
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tempdir.cleanup)
+        self.config_path = os.path.join(self.tempdir.name, "plugin.conf")
+        self.mtime_ns = time.time_ns()
+        self.filter_classes = {}
+        self.weigher_classes = {}
 
-    # Filters test
+        env_patch = patch.dict(
+            os.environ,
+            {plugin.CONFIG_ENV_VAR: self.config_path},
+        )
+        env_patch.start()
+        self.addCleanup(env_patch.stop)
 
-    def test_before_filtering_calls_filters(self):
-        host_list = ['host1', 'host2']
-        spec_obj = {'some': 'spec'}
+        load_patch = patch.object(
+            plugin.ExternalScheduler,
+            "_load_plugins",
+            side_effect=self._load_plugins,
+        )
+        load_patch.start()
+        self.addCleanup(load_patch.stop)
 
-        self.mock_filter_true.reset_mock()
-        self.mock_filter_false.reset_mock()
+    def _load_plugins(self, namespace):
+        if namespace == plugin.FILTER_NAMESPACE:
+            return dict(self.filter_classes)
+        if namespace == plugin.WEIGHER_NAMESPACE:
+            return dict(self.weigher_classes)
+        return {}
 
-        self.plugin.filter_list = []
-        self.assertIsNone(self.plugin.before_filtering(host_list, spec_obj))
-        
-        self.plugin.filter_list = [self.mock_filter_true, self.mock_filter_false]
-        self.assertIsNone(self.plugin.before_filtering(host_list, spec_obj))
-        self.mock_filter_true.before_filtering.assert_called_once_with(host_list, spec_obj)
-        self.mock_filter_false.before_filtering.assert_called_once_with(host_list, spec_obj)
+    def write_config(self, body):
+        with open(self.config_path, "w") as config_file:
+            config_file.write(body)
+        self.mtime_ns += 1000000000
+        os.utime(self.config_path, ns=(self.mtime_ns, self.mtime_ns))
 
-    def test_filter_one_with_no_filters_returns_true(self):
-        self.plugin.filter_list = []
-        result = self.plugin.filter_one('host', 'spec')
-        self.assertTrue(result)
+    def make_scheduler(self):
+        return plugin.ExternalScheduler(logger=MagicMock())
 
-    def test_filter_one_with_single_filter(self):
-        self.mock_filter_true.reset_mock()
-        self.mock_filter_false.reset_mock()
-        
-        self.plugin.filter_list = [self.mock_filter_true]
-        self.assertTrue(self.plugin.filter_one('host', 'spec'))
-        self.mock_filter_true.filter_one.assert_called_once_with('host', 'spec')
-        
-        self.plugin.filter_list = [self.mock_filter_false]
-        self.assertFalse(self.plugin.filter_one('host', 'spec'))
-        self.mock_filter_false.filter_one.assert_called_once_with('host', 'spec')
-        
-    def test_filter_one_with_multiple_filters(self):
-        self.mock_filter_true.reset_mock()
-        self.plugin.filter_list = [self.mock_filter_true, self.mock_filter_true]
-        self.assertTrue(self.plugin.filter_one('host', 'spec'))
-        self.assertEqual(self.mock_filter_true.filter_one.call_count, 2)
-        
-        self.mock_filter_false.reset_mock()
-        self.plugin.filter_list = [self.mock_filter_false, self.mock_filter_false]
-        self.assertFalse(self.plugin.filter_one('host', 'spec'))
-        self.assertEqual(self.mock_filter_false.filter_one.call_count, 1)
 
-        self.mock_filter_true.reset_mock()
-        self.mock_filter_false.reset_mock()
-        self.plugin.filter_list = [self.mock_filter_true, self.mock_filter_false]
-        self.assertFalse(self.plugin.filter_one('host', 'spec'))
-        self.mock_filter_true.filter_one.assert_called_once_with('host', 'spec')
-        self.mock_filter_false.filter_one.assert_called_once_with('host', 'spec')
+class TestExternalSchedulerProfiles(ExternalSchedulerTestCase):
 
-     # Weigher test
+    def test_filter_profile_selected_from_scheduler_hints(self):
+        calls = []
 
-    def test_before_weighting_calls_weighers(self):
-        host_list = ['host1', 'host2']
-        weight_props = {'some': 'spec'}
+        class DefaultFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
 
-        self.mock_weigher_one.reset_mock()
-        self.mock_weigher_minus_two.reset_mock()
+            def before_filtering(self, hosts, spec):
+                calls.append(("before", "default"))
 
-        self.plugin.weight_list = []
-        self.assertIsNone(self.plugin.before_weighting(host_list, weight_props))
-        
-        self.plugin.weight_list = [self.mock_weigher_one,self.mock_weigher_minus_two]
-        self.assertIsNone(self.plugin.before_weighting(host_list, weight_props))
-        self.mock_weigher_one.before_weighting.assert_called_once_with(host_list, weight_props)
-        self.mock_weigher_minus_two.before_weighting.assert_called_once_with(host_list, weight_props)
+            def filter_one(self, host, spec):
+                calls.append(("filter", "default", host))
+                return True
 
-    def test_weight_one_with_no_weighers_returns_zero(self):
-        self.plugin.weight_list = []
-        score = self.plugin.weight_one('host', 'props')
-        self.assertEqual(score, 0)
+        class LatencyFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
 
-    def test_weight_one_accumulates_scores(self):
-        self.mock_weigher_one.reset_mock()
-        self.mock_weigher_minus_two.reset_mock()
+            def before_filtering(self, hosts, spec):
+                calls.append(("before", "latency"))
 
-        self.plugin.weight_list = [self.mock_weigher_one]
-        self.assertEqual(self.plugin.weight_one('host', 'props'), self.mock_weigher_one.weight_one.return_value)
+            def filter_one(self, host, spec):
+                calls.append(("filter", "latency", host))
+                return True
 
-        self.plugin.weight_list = [self.mock_weigher_one,self.mock_weigher_minus_two]
-        self.assertEqual(self.plugin.weight_one('host', 'props'), self.mock_weigher_one.weight_one.return_value + self.mock_weigher_minus_two.weight_one.return_value)
+        self.filter_classes = {
+            "DefaultFilter": DefaultFilter,
+            "LatencyFilter": LatencyFilter,
+        }
+        self.write_config("""
+[global]
+default_profile=default
+profile_hint_key=ext_sched_profile
 
-        self.plugin.weight_list = [self.mock_weigher_minus_two, self.mock_weigher_one]
-        self.assertEqual(self.plugin.weight_one('host', 'props'), self.mock_weigher_one.weight_one.return_value + self.mock_weigher_minus_two.weight_one.return_value)
+[profile:default]
+filters=DefaultFilter
+weighers=
+
+[profile:latency]
+filters=LatencyFilter
+weighers=
+""")
+
+        scheduler = self.make_scheduler()
+
+        self.assertEqual(["host1"], scheduler.filter_all(["host1"], Spec()))
+        self.assertIn(("filter", "default", "host1"), calls)
+
+        calls.clear()
+        spec = Spec({"ext_sched_profile": "latency"})
+        self.assertEqual(["host2"], scheduler.filter_all(["host2"], spec))
+        self.assertIn(("filter", "latency", "host2"), calls)
+        self.assertNotIn(("filter", "default", "host2"), calls)
+
+    def test_unknown_profile_rejects_all_hosts(self):
+        class AllowFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_filtering(self, hosts, spec):
+                pass
+
+            def filter_one(self, host, spec):
+                return True
+
+        self.filter_classes = {"AllowFilter": AllowFilter}
+        self.write_config("""
+[global]
+default_profile=default
+unknown_profile_policy=reject
+
+[profile:default]
+filters=AllowFilter
+weighers=
+""")
+
+        scheduler = self.make_scheduler()
+        spec = Spec({"ext_sched_profile": "missing"})
+        self.assertEqual([], scheduler.filter_all(["host1"], spec))
+
+    def test_legacy_enabled_filters_create_default_profile(self):
+        calls = []
+
+        class LegacyFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_filtering(self, hosts, spec):
+                calls.append("before")
+
+            def filter_one(self, host, spec):
+                calls.append(("filter", host))
+                return True
+
+        class LegacyWeight:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_weighting(self, hosts, spec):
+                calls.append("before_weight")
+
+            def weight_one(self, host, spec):
+                return 3
+
+        self.filter_classes = {"LegacyFilter": LegacyFilter}
+        self.weigher_classes = {"LegacyWeight": LegacyWeight}
+        self.write_config("""
+[global]
+enabled_filters=LegacyFilter
+enabled_weighers=LegacyWeight
+""")
+
+        scheduler = self.make_scheduler()
+        self.assertEqual(["host1"], scheduler.filter_all(["host1"], Spec()))
+        self.assertEqual([3], scheduler.weigh_all([Weighed(Host())], Spec()))
+        self.assertIn(("filter", "host1"), calls)
+        self.assertIn("before_weight", calls)
+
+    def test_weigh_all_sums_profile_weighers(self):
+        class WeightOne:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_weighting(self, hosts, spec):
+                pass
+
+            def weight_one(self, host, spec):
+                return 1
+
+        class WeightMinusTwo:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_weighting(self, hosts, spec):
+                pass
+
+            def weight_one(self, host, spec):
+                return -2
+
+        self.weigher_classes = {
+            "WeightOne": WeightOne,
+            "WeightMinusTwo": WeightMinusTwo,
+        }
+        self.write_config("""
+[global]
+default_profile=default
+
+[profile:default]
+filters=
+weighers=WeightOne,WeightMinusTwo
+""")
+
+        scheduler = self.make_scheduler()
+        weights = scheduler.weigh_all(
+            [Weighed(Host()), Weighed(Host())],
+            Spec(),
+        )
+        self.assertEqual([-1, -1], weights)
+
+    def test_invalid_hot_reload_keeps_previous_state(self):
+        class AllowFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_filtering(self, hosts, spec):
+                pass
+
+            def filter_one(self, host, spec):
+                return True
+
+        self.filter_classes = {"AllowFilter": AllowFilter}
+        self.write_config("""
+[global]
+default_profile=default
+
+[profile:default]
+filters=AllowFilter
+weighers=
+""")
+
+        scheduler = self.make_scheduler()
+        self.assertEqual(["host1"], scheduler.filter_all(["host1"], Spec()))
+        state = scheduler.state
+
+        self.write_config("""
+[global]
+default_profile=default
+
+[profile:default]
+filters=MissingFilter
+weighers=
+""")
+
+        self.assertEqual(["host2"], scheduler.filter_all(["host2"], Spec()))
+        self.assertIs(state, scheduler.state)
+
+    def test_parallel_requests_do_not_share_profile_state(self):
+        slow_ready = threading.Event()
+        release_slow = threading.Event()
+        slow_result = []
+        deny_result = []
+
+        class SlowAllowFilter:
+            def __init__(self, logger, config, monitoring):
+                self.before_ran = False
+
+            def before_filtering(self, hosts, spec):
+                self.before_ran = True
+                slow_ready.set()
+                if not release_slow.wait(timeout=2):
+                    raise AssertionError("timed out waiting for slow request")
+
+            def filter_one(self, host, spec):
+                return self.before_ran
+
+        class DenyFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_filtering(self, hosts, spec):
+                pass
+
+            def filter_one(self, host, spec):
+                return False
+
+        self.filter_classes = {
+            "SlowAllowFilter": SlowAllowFilter,
+            "DenyFilter": DenyFilter,
+        }
+        self.write_config("""
+[global]
+default_profile=slow
+
+[profile:slow]
+filters=SlowAllowFilter
+weighers=
+
+[profile:deny]
+filters=DenyFilter
+weighers=
+""")
+
+        scheduler = self.make_scheduler()
+
+        def run_slow():
+            slow_result.extend(scheduler.filter_all(["slow"], Spec()))
+
+        thread = threading.Thread(target=run_slow)
+        thread.start()
+        self.assertTrue(slow_ready.wait(timeout=2))
+
+        deny_spec = Spec({"ext_sched_profile": "deny"})
+        deny_result.extend(scheduler.filter_all(["deny"], deny_spec))
+        release_slow.set()
+        thread.join(timeout=2)
+
+        self.assertEqual([], deny_result)
+        self.assertEqual(["slow"], slow_result)
+
+    def test_request_started_before_reload_uses_old_snapshot(self):
+        slow_ready = threading.Event()
+        release_slow = threading.Event()
+        slow_result = []
+
+        class SlowAllowFilter:
+            def __init__(self, logger, config, monitoring):
+                self.before_ran = False
+
+            def before_filtering(self, hosts, spec):
+                self.before_ran = True
+                slow_ready.set()
+                if not release_slow.wait(timeout=2):
+                    raise AssertionError("timed out waiting for slow request")
+
+            def filter_one(self, host, spec):
+                return self.before_ran
+
+        class DenyFilter:
+            def __init__(self, logger, config, monitoring):
+                pass
+
+            def before_filtering(self, hosts, spec):
+                pass
+
+            def filter_one(self, host, spec):
+                return False
+
+        self.filter_classes = {
+            "SlowAllowFilter": SlowAllowFilter,
+            "DenyFilter": DenyFilter,
+        }
+        self.write_config("""
+[global]
+default_profile=default
+
+[profile:default]
+filters=SlowAllowFilter
+weighers=
+""")
+
+        scheduler = self.make_scheduler()
+
+        def run_slow():
+            slow_result.extend(scheduler.filter_all(["old"], Spec()))
+
+        thread = threading.Thread(target=run_slow)
+        thread.start()
+        self.assertTrue(slow_ready.wait(timeout=2))
+
+        self.write_config("""
+[global]
+default_profile=default
+
+[profile:default]
+filters=DenyFilter
+weighers=
+""")
+        self.assertEqual([], scheduler.filter_all(["new"], Spec()))
+
+        release_slow.set()
+        thread.join(timeout=2)
+        self.assertEqual(["old"], slow_result)
+
 
 class TestPrometheusEndpoint(unittest.TestCase):
     def setUp(self):
@@ -175,6 +464,7 @@ class TestPrometheusEndpoint(unittest.TestCase):
         endpoints = ["http://a", "http://b", "http://c"]
         self.prom.endpoint = endpoints
         self.assertIn(self.prom.get_endpoint(), endpoints)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -36,7 +36,7 @@ class CpuLoadWeight(BaseExternalWeigher):
         regex_host = '|'.join([host.obj.host for host in weighed_obj_list if (host.obj.vcpus_used > ( host.obj.vcpus_total * self.exclude_alloc ))])
         metrics = self.get_hosts_metric(regex_host=regex_host)
         for obj in weighed_obj_list:
-            if obj.obj.host in metrics: setattr(obj, 'ext-sched.idle-ratio', metrics[obj.obj.host])
+            if obj.obj.host in metrics: setattr(obj.obj, 'ext-sched.idle-ratio', metrics[obj.obj.host])
 
     def weight_one(self, host_state, weight_properties):
         """Return a score to elect the server as suitable (higher weight wins)

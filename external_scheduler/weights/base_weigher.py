@@ -18,8 +18,8 @@ class BaseExternalWeigher(object):
         """Method called once by nova ExternalWeighter before weighting operations begin
         We use it to do a single request to the monitoring stack for all objects
 
-        :param filter_obj_list: hoststate list
-        :param spec_obj: filter options
+        :param weighed_obj_list: weighed host list
+        :param weight_properties: weight options
         :return: None
         """
         pass

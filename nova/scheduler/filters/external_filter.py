@@ -24,7 +24,7 @@ LOG = logging.getLogger(__name__)
 class ExternalFilter(filters.BaseHostFilter):
 
     def __init__(self):
-        # Load the external filter dynamically using stevedore
+        # Load the external scheduler driver dynamically using stevedore
         self.mgr = driver.DriverManager(
             namespace="nova.scheduler.external_scheduler",
             name="external_scheduler",
@@ -33,16 +33,14 @@ class ExternalFilter(filters.BaseHostFilter):
         )
 
     def filter_all(self, filter_obj_list, spec_obj):
-        """Override filter_all from BaseFilter to implement a hook
+        """Batch hook used to select a request-local external profile.
         """
         LOG.debug(f"ExternalFilter: filter_all called")
-        self.mgr.driver.before_filtering(filter_obj_list, spec_obj) # the hook
-        for obj in filter_obj_list:
-            if self._filter_one(obj, spec_obj):
-                yield obj
+        for obj in self.mgr.driver.filter_all(filter_obj_list, spec_obj):
+            yield obj
 
     def host_passes(self, host_state, spec_obj):
-        """Filter a given host
+        """Nova BaseHostFilter expects this method for single-host fallback.
         """
         LOG.debug(f"ExternalFilter: host_passes called")
         return self.mgr.driver.filter_one(host_state, spec_obj) # let the decision to external plugin
